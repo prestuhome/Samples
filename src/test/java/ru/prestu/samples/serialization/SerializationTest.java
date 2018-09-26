@@ -25,7 +25,7 @@ public class SerializationTest {
     * serialVersionUID (версия класса, желательно указывать)
     * transient поля пропускаются
     * все потомки Serializable-класса тоже Serializable
-    * если супер-класс не Serializable, то его поля инициализируются конструктором оп умолчанию (no-args constructor)
+    * если супер-класс не Serializable, то его поля инициализируются конструктором по умолчанию (no-args constructor)
     */
     @Test
     public void testSerialization() throws FileNotFoundException, IOException, ClassNotFoundException{

@@ -33,18 +33,64 @@ public class ConcurrencyTest {
             @Override
             public void run() {
                 try {
-                    //Состояние Sleeping появляется при вызове метода Thread.sleep(time)
+                    //Переводит состояние потока из Running в Sleeping
                     Thread.sleep(5 * 1000);
                 } catch (InterruptedException ex) {
                     //Обработка нужна при прерывании потока во время сна, то есть поток спит, а в другом потоке происходит вызов thread.interrupt()
                 }
-                //Уступает место другому потоку
+                //Переводит состояние потока из Running в Runnable
                 Thread.yield();
+                try {
+                    //Переводит состояние потока из Running в Wainting, поток может ожидать меньше указанного времени, если получает notify() или notifyAll().
+                    wait(5 * 1000);
+                } catch (InterruptedException ex) {
+                    //Обработка нужна при прерывании потока во время ожидания, то есть поток ожидает, а в другом потоке происходит вызов thread.interrupt()
+                }
             }
         };
         //Приоритет этого потока для Scheduler-а, от 1 до 10, зависит от ОС
         thread.setPriority(1);
+        try {
+            //Применяется, чтобы дождаться завершения потока thread, а уже затем продолжить исполнение родительского потока.
+            thread.join();
+        } catch (InterruptedException ex) {
+
+        }
 
     }
 
+    @Test
+    public void testSynchronization() throws InterruptedException {
+        SynchronizedResource resource = new SynchronizedResource();
+        resource.setI(5);
+        MyThread firstThread = new MyThread();
+        MyThread secondThread = new MyThread();
+        firstThread.resource = resource;
+        secondThread.resource = resource;
+        firstThread.setName("firstThread");
+        secondThread.setName("secondThread");
+        firstThread.start();
+        secondThread.start();
+        firstThread.join();
+        secondThread.join();
+        System.out.println(resource.getI());
+        assertEquals(7, resource.getI());
+    }
+
+    @Test
+    public void testStaticSynchronization() throws InterruptedException {
+        SynchronizedStaticResource.setI(5);
+        Thread firstThread = new Thread(new MyRunnable());
+        Thread secondThread = new Thread(new MyRunnable());
+        firstThread.setName("firstThread");
+        secondThread.setName("secondThread");
+        firstThread.start();
+        secondThread.start();
+        firstThread.join();
+        secondThread.join();
+        System.out.println(SynchronizedStaticResource.getI());
+        assertEquals(7, SynchronizedStaticResource.getI());
+    }
+
 }
+
