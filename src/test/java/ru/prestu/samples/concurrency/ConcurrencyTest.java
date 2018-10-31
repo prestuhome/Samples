@@ -1,5 +1,13 @@
 package ru.prestu.samples.concurrency;
 
+import static java.lang.Thread.sleep;
+import static java.lang.Thread.yield;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.*;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -90,6 +98,214 @@ public class ConcurrencyTest {
         secondThread.join();
         System.out.println(SynchronizedStaticResource.getI());
         assertEquals(7, SynchronizedStaticResource.getI());
+    }
+
+    //Для переменных, помеченных volatile, кэширование не происходит, все пишется/читается в/из основной памяти
+    private volatile static int volatileVar;
+
+    @Test
+    public void testVolatileVars() throws InterruptedException {
+        Thread write = new Thread() {
+            @Override
+            public void run() {
+                while (volatileVar < 5) {
+                    System.out.println("increment i to " + (++volatileVar));
+                    try {
+                        Thread.sleep(500);
+                    } catch (InterruptedException ex) {
+                        ex.printStackTrace();
+                    }
+                }
+            }
+        };
+        Thread read = new Thread() {
+            @Override
+            public void run() {
+                int localVar = volatileVar;
+                while (localVar < 5) {
+                    if (localVar != volatileVar) {
+                        System.out.println("new value is " + volatileVar);
+                        localVar = volatileVar;
+                    }
+                }
+            }
+        };
+        write.start();
+        read.start();
+        write.join();
+        read.join();
+    }
+
+    //Атомарные переменные, все операции происходят последовательно
+    private static AtomicInteger atomicVar = new AtomicInteger(0);
+
+    @Test
+    public void testAtomicVars() throws InterruptedException {
+        class MyThread extends Thread {
+            @Override
+            public void run() {
+                atomicVar.incrementAndGet();
+            }
+        }
+        int expected = 10000;
+        for (int i = 0; i < expected; i++) {
+            MyThread thread = new MyThread();
+            thread.start();
+            thread.join();
+        }
+        assertEquals(expected, atomicVar.get());
+    }
+
+    private final List<String> list = Collections.synchronizedList(new ArrayList<>());
+
+    @Test
+    public void testWaitAndNotify() throws InterruptedException {
+        class Operator extends Thread {
+            @Override
+            public void run() {
+                yield();
+                int i = 0;
+                while (i < 10) {
+                    synchronized (list) {
+                        System.out.println("Operator add new string: " + (++i));
+                        list.add(String.valueOf(i));
+                        list.notify();
+                        try {
+                            list.wait();
+                        } catch (InterruptedException ex) {
+                            ex.printStackTrace();
+                        }
+                    }
+                }
+            }
+        }
+        class Machine extends Thread {
+            @Override
+            public void run() {
+                while (list.isEmpty()) {
+                    synchronized (list) {
+                        try {
+                            list.wait();
+                        } catch (InterruptedException ex) {
+                            ex.printStackTrace();
+                        }
+                        System.out.println("Machine show new string: " + list.remove(0));
+                        list.notify();
+                    }
+                }
+            }
+        }
+        Machine machine = new Machine();
+        Operator operator = new Operator();
+        machine.start();
+        operator.start();
+        operator.join();
+    }
+
+    @Test
+    public void testLock() throws InterruptedException {
+        Lock lock = new ReentrantLock();
+
+        lock.lock();
+        //блок кода, который выполняется синхронизированно
+        lock.unlock();
+        //Имеет ту же функцию, что и synchronized; преимущество в том, что метод lock() можно вызвать в одном методе, а метод unlock() - в другом
+        class FirstThread extends Thread {
+            @Override
+            public void run() {
+                lock.lock();
+                System.out.println(getName() + " began to work");
+                try {
+                    sleep(1000);
+                } catch (InterruptedException ex) {
+                    ex.printStackTrace();
+                }
+                System.out.println(getName() + " finished work");
+                lock.unlock();
+                System.out.println(getName() + " lock is released");
+            }
+        }
+        class SecondThread extends Thread {
+            @Override
+            public void run() {
+                System.out.println(getName() + " began to work");
+                while (true) {
+                    if (lock.tryLock()) {
+                        System.out.println(getName() + " is working");
+                        lock.unlock();
+                        break;
+                    } else {
+                        System.out.println(getName() + " is waiting");
+                        try {
+                            sleep(50);
+                        } catch (InterruptedException ex) {
+                            ex.printStackTrace();
+                        }
+                    }
+                }
+            }
+        }
+        FirstThread firstThread = new FirstThread();
+        SecondThread secondThread = new SecondThread();
+        firstThread.start();
+        secondThread.start();
+        firstThread.join();
+        secondThread.join();
+    }
+
+    @Test
+    public void testCondition() throws InterruptedException {
+        Lock lock = new ReentrantLock();
+        Condition condition = lock.newCondition();
+        class Operator extends Thread {
+            @Override
+            public void run() {
+                yield();
+                int i = 0;
+                while (i < 10) {
+                    lock.lock();
+                    System.out.println("Operator add new string: " + (++i));
+                    list.add(String.valueOf(i));
+                    condition.signal();
+                    try {
+                        condition.await();
+                    } catch (InterruptedException ex) {
+                        ex.printStackTrace();
+                    }
+                    lock.unlock();
+                }
+            }
+        }
+        class Machine extends Thread {
+            @Override
+            public void run() {
+                while (list.isEmpty()) {
+                    lock.lock();
+                    try {
+                        condition.await();
+                    } catch (InterruptedException ex) {
+                        ex.printStackTrace();
+                    }
+                    System.out.println("Machine show new string: " + list.remove(0));
+                    condition.signal();
+                    lock.unlock();
+                }
+            }
+        }
+        Machine machine = new Machine();
+        Operator operator = new Operator();
+        machine.start();
+        operator.start();
+        operator.join();
+    }
+
+    @Test
+    public void testCallable() throws Exception {
+        int expected = 10;
+        Callable<Integer> callable = new MyCallable(expected);
+        FutureTask futureTask = new FutureTask(callable);
+        new Thread(futureTask).start();
+        assertEquals(expected, futureTask.get());
     }
 
 }
